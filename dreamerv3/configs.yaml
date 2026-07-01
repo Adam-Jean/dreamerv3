@@ -78,6 +78,7 @@ defaults:
     prealloc: True
     jit: True
     debug: False
+    profiler: True
     expect_devices: 0
     enable_policy: True
     coordinator_address: ''
