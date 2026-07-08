@@ -18,6 +18,12 @@ def train(make_agent, make_replay, make_env, make_stream, make_logger, args):
   train_agg = elements.Agg()
   epstats = elements.Agg()
   episodes = collections.defaultdict(elements.Agg)
+  # LOCAL DEVIATION from upstream danijar/dreamerv3 (mc-rl-sandbox): per-worker
+  # step-latency aggregation so `log/step_ms` is visible per Minecraft fleet
+  # instance instead of blended into one global average. Re-apply after any
+  # submodule update. See agent/train.py's make_env (worker index == fleet
+  # instance index, port + worker).
+  worker_perf = collections.defaultdict(elements.Agg)
   policy_fps = elements.FPS()
   train_fps = elements.FPS()
 
@@ -43,6 +49,9 @@ def train(make_agent, make_replay, make_env, make_stream, make_logger, args):
         episode.add(key + '/avg', value, agg='avg')
         episode.add(key + '/max', value, agg='max')
         episode.add(key + '/sum', value, agg='sum')
+    # LOCAL DEVIATION (mc-rl-sandbox): tag step latency by fleet instance.
+    if 'log/step_ms' in tran:
+      worker_perf[worker].add({'step_ms': tran['log/step_ms']})
     if tran['is_last']:
       result = episode.result()
       logger.add({
@@ -111,6 +120,9 @@ def train(make_agent, make_replay, make_env, make_stream, make_logger, args):
       logger.add({'fps/policy': policy_fps.result()})
       logger.add({'fps/train': train_fps.result()})
       logger.add({'timer': elements.timer.stats()['summary']})
+      # LOCAL DEVIATION (mc-rl-sandbox): flush per-fleet-instance step latency.
+      for w, agg in worker_perf.items():
+        logger.add(agg.result(), prefix=f'perf/env{w}')
       logger.write()
 
     if should_save(step):
