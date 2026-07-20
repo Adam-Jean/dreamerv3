@@ -68,6 +68,7 @@ class Head(nj.Module):
   maxstd: float = 1.0
   unimix: float = 0.0
   bins: int = 255
+  binlim: float = 20.0
   outscale: float = 1.0
 
   def __init__(self, space, output, **kw):
@@ -133,12 +134,18 @@ class Head(nj.Module):
     assert not self.space.discrete
     shape = (*self.space.shape, self.bins)
     logits = self.sub('logits', nets.Linear, shape, **self.kw)(x)
+    # binlim is the linspace endpoint in symlog space: bin values span
+    # +/- symexp(binlim). The default 20 (+/-4.85e8) matches upstream; tasks
+    # with known reward/return scale should narrow it so softmax tail mass
+    # on the outermost bins cannot dominate pred() with astronomical values.
+    # TwoHot.loss() clips out-of-range targets onto the edge bins, so a
+    # narrow range degrades gracefully for outlier targets.
     if self.bins % 2 == 1:
-      half = jnp.linspace(-20, 0, (self.bins - 1) // 2 + 1, dtype=f32)
+      half = jnp.linspace(-self.binlim, 0, (self.bins - 1) // 2 + 1, dtype=f32)
       half = nets.symexp(half)
       bins = jnp.concatenate([half, -half[:-1][::-1]], 0)
     else:
-      half = jnp.linspace(-20, 0, self.bins // 2, dtype=f32)
+      half = jnp.linspace(-self.binlim, 0, self.bins // 2, dtype=f32)
       half = nets.symexp(half)
       bins = jnp.concatenate([half, -half[::-1]], 0)
     return outs.TwoHot(logits, bins)
